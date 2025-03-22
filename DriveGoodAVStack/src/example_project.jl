@@ -63,9 +63,13 @@ function decision_making(localization_state_channel,
         latest_localization_state = fetch(localization_state_channel)
         latest_perception_state = fetch(perception_state_channel)
 
+        # Use MPC to plan trajectory based on latest state and map route
+        # (steering_angle, target_vel) = mpc_plan(latest_localization_state, latest_perception_state, map, target_road_segment_id)
+
         # figure out what to do ... setup motion planning problem etc
+        #drive slowly, steering straight
         steering_angle = 0.0
-        target_vel = 0.0
+        target_vel = 2.0
         cmd = (steering_angle, target_vel, true)
         serialize(socket, cmd)
     end
