@@ -54,6 +54,19 @@ function perception(cam_meas_channel, localization_state_channel, perception_sta
         end
 
         latest_localization_state = fetch(localization_state_channel)
+
+        #=TODO:
+        - Define our custom perception type
+            - Timestamping
+            - Assiging to track id
+            - PoE values. 
+        - Implement our EFK to handle noise in our BB state estimate
+        - Implement helper function to do process camera measuments and extract state estimates
+        - Implement "tracks" module that will handle the tracking of objecs overtime. 
+            - This module will handle the logic for dealing with false positives, false negatives, and multiple detections.
+            - Will compute probabilty of existence for each object in the track. 
+
+        =#
         
         # process bounding boxes / run ekf / do what you think is good
 
