@@ -7,9 +7,15 @@ struct MyPerceptionType
     field1::Int
     field2::Float64
 end
+# TODO decide if using bicycle model or point model
+# How should we start localizaiton when program begins
+# Random noise across the entire map?
+# Figure out how to test estimation model
 
 function localize(gps_channel, imu_channel, localization_state_channel)
     # Set up algorithm / initialize variables
+    # Read freshest gps data and and the use measurement and process model.
+    #Need to create cov matrix for
     while true
         fresh_gps_meas = []
         while isready(gps_channel)
@@ -23,11 +29,17 @@ function localize(gps_channel, imu_channel, localization_state_channel)
         end
         
         # process measurements
+        # use the rigid_body_dynamics to predict state transition
+        # calculate cov and estimate using math from slides
+        # Then, use gps data gps to correct
+        # Use more EKF math from slides
+    
 
         localization_state = MyLocalizationType(0,0.0)
         if isready(localization_state_channel)
             take!(localization_state_channel)
         end
+        # Finally, update the estimated state with our calculated one
         put!(localization_state_channel, localization_state)
     end 
 end
@@ -42,6 +54,19 @@ function perception(cam_meas_channel, localization_state_channel, perception_sta
         end
 
         latest_localization_state = fetch(localization_state_channel)
+
+        #=TODO:
+        - Define our custom perception type
+            - Timestamping
+            - Assiging to track id
+            - PoE values. 
+        - Implement our EFK to handle noise in our BB state estimate
+        - Implement helper function to do process camera measuments and extract state estimates
+        - Implement "tracks" module that will handle the tracking of objecs overtime. 
+            - This module will handle the logic for dealing with false positives, false negatives, and multiple detections.
+            - Will compute probabilty of existence for each object in the track. 
+
+        =#
         
         # process bounding boxes / run ekf / do what you think is good
 
@@ -63,9 +88,13 @@ function decision_making(localization_state_channel,
         latest_localization_state = fetch(localization_state_channel)
         latest_perception_state = fetch(perception_state_channel)
 
+        # Use MPC to plan trajectory based on latest state and map route
+        # (steering_angle, target_vel) = mpc_plan(latest_localization_state, latest_perception_state, map, target_road_segment_id)
+
         # figure out what to do ... setup motion planning problem etc
+        #drive slowly, steering straight
         steering_angle = 0.0
-        target_vel = 0.0
+        target_vel = 2.0
         cmd = (steering_angle, target_vel, true)
         serialize(socket, cmd)
     end
