@@ -58,6 +58,31 @@ function perception(cam_meas_channel, localization_state_channel, perception_sta
         
         # process bounding boxes / run ekf / do what you think is good
 
+
+
+
+        # TODO: Implementation notes..Simple first
+
+
+        #= TODO: Inclass notes
+
+        - Produce some kind of message that lets other components know where other vehicles are in 
+
+        - vector of other vehcile states info, planal location, heading, velo, maybe size... 
+        - maintain a list of vehicel states.. 
+        - To start up populate some message from GT so that the decision making can use it. 'Get the piping done'
+        - Next step start if detect bb say there is an obstacle say 10 meters in front of me. 
+
+        EKF>>>>
+
+        Dynamically spawn and and destroy EKF... So if you have two BBs in an image you need to keep track of two EKFs for each BB
+        # No false positives ===> No cars there is not BBs 
+        # All cars are the same height.. 
+        # so all we need to know is [x,y ,θ, v] (uknown state: stuff we estimate with EKF)
+        # the known state =  [z, l, w, h] , big rectangles that slide around (constants that we set and can dig around the source code and find)
+        # Need an init prior for [x,y ,θ, v]... the height can be in full field of view. So if i know size of car, and pixels, you get get a guess of the depth.. 
+        =#
+
         perception_state = MyPerceptionType(0,0.0)
         if isready(perception_state_channel)
             take!(perception_state_channel)
