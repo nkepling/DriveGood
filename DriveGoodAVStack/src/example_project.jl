@@ -142,6 +142,13 @@ function my_client(host::IPAddr=IPv4(0), port=4444)
     cam_channel = Channel{CameraMeasurement}(32)
     gt_channel = Channel{GroundTruthMeasurement}(32)
 
+    # Buffer to log data steams for testing purposes.... 
+    gps_buffer = Vector{GPSMeasurement}()
+    imu_buffer = Vector{IMUMeasurement}()
+    cam_buffer = Vector{CameraMeasurement}()
+    gt_buffer = Vector{GroundTruthMeasurement}()
+
+
     #localization_state_channel = Channel{MyLocalizationType}(1)
     #perception_state_channel = Channel{MyPerceptionType}(1)
 
@@ -168,16 +175,23 @@ function my_client(host::IPAddr=IPv4(0), port=4444)
         ego_vehicle_id = measurement_msg.vehicle_id
         for meas in measurement_msg.measurements
             if meas isa GPSMeasurement
-                !isfull(gps_channel) && put!(gps_channel, meas)
+                push!(gps_buffer,meas)
+                #!isfull(gps_channel) && put!(gps_channel, meas)
             elseif meas isa IMUMeasurement
-                !isfull(imu_channel) && put!(imu_channel, meas)
+                push!(imu_buffer,meas)
+                #!isfull(imu_channel) && put!(imu_channel, meas)
             elseif meas isa CameraMeasurement
-                !isfull(cam_channel) && put!(cam_channel, meas)
+                push!(cam_buffer,meas)
+                #!isfull(cam_channel) && put!(cam_channel, meas)
             elseif meas isa GroundTruthMeasurement
-                !isfull(gt_channel) && put!(gt_channel, meas)
+                push(gt_buffer,meas)
+                #!isfull(gt_channel) && put!(gt_channel, meas)
             end
         end
     end)
+    jldsave("mybuffers.jld2";gps_buffer,imu_buffer,cam_buffer,gt_buffer)
+
+    return
 
     @async localize(gps_channel, imu_channel, localization_state_channel)
     @async perception(cam_channel, localization_state_channel, perception_state_channel)
