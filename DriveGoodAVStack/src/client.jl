@@ -21,7 +21,6 @@ function keyboard_client(host::IPAddr=IPv4(0), port=4444; v_step = 1.0, s_step =
     (peer_host, peer_port) = getpeername(socket)
     msg = deserialize(socket) # Visualization info
     @info msg
-
     @async while isopen(socket)
         sleep(0.001)
         state_msg = deserialize(socket)

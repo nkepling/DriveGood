@@ -1,13 +1,14 @@
-struct MyLocalizationType
-    field1::Int
-    field2::Float64
+struct LocalizationType
+    x::Int
+    y::Int
+    yaw::Float64
 end
 
 struct MyPerceptionType
     field1::Int
     field2::Float64
 end
-# TODO decide if using bicycle model or point model
+
 # How should we start localizaiton when program begins
 # Random noise across the entire map?
 # Figure out how to test estimation model
