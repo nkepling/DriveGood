@@ -1,6 +1,6 @@
 using LinearAlgebra
 using VehicleSim
-function localize(gps_channel, imu_channel, localization_state_channel)
+function localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)
 
     # State vector x: [p_x, p_y, p_z, q_w, q_x, q_y, q_z, v_x, v_y, v_z, ω_x, ω_y, ω_z]
     x_est = zeros(13)
@@ -104,5 +104,11 @@ function localize(gps_channel, imu_channel, localization_state_channel)
 
         # sleep briefly
         sleep(0.01)
+
+        if fetch(shutdown_channel) == true
+            @info "shutting down"
+            flush(stdout)
+            break
+        end
     end 
 end
