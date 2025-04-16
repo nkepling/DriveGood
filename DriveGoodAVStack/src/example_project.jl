@@ -1,135 +1,115 @@
-struct MyLocalizationType
-    field1::Int
-    field2::Float64
-end
 
-struct MyPerceptionType
-    field1::Int
-    field2::Float64
-end
+# # Module usage
+# using .GeometryUtils
+# using .PurePursuit
+# using .Planner
+# using .DecisionMaking
+# using .Routing
+# using .GTProcessor  # If your process_gt function is inside a module
 
-function localize(gps_channel, imu_channel, localization_state_channel)
-    # Set up algorithm / initialize variables
-    while true
-        fresh_gps_meas = []
-        while isready(gps_channel)
-            meas = take!(gps_channel)
-            push!(fresh_gps_meas, meas)
-        end
-        fresh_imu_meas = []
-        while isready(imu_channel)
-            meas = take!(imu_channel)
-            push!(fresh_imu_meas, meas)
-        end
-        
-        # process measurements
-
-        localization_state = MyLocalizationType(0,0.0)
-        if isready(localization_state_channel)
-            take!(localization_state_channel)
-        end
-        put!(localization_state_channel, localization_state)
-    end 
-end
-
-function perception(cam_meas_channel, localization_state_channel, perception_state_channel)
-    # set up stuff
-    while true
-        fresh_cam_meas = []
-        while isready(cam_meas_channel)
-            meas = take!(cam_meas_channel)
-            push!(fresh_cam_meas, meas)
-        end
-
-        latest_localization_state = fetch(localization_state_channel)
-        
-        # process bounding boxes / run ekf / do what you think is good
-
-        perception_state = MyPerceptionType(0,0.0)
-        if isready(perception_state_channel)
-            take!(perception_state_channel)
-        end
-        put!(perception_state_channel, perception_state)
-    end
-end
-
-function decision_making(localization_state_channel, 
-        perception_state_channel, 
-        map, 
-        target_road_segment_id, 
-        socket)
-    # do some setup
-    while true
-        latest_localization_state = fetch(localization_state_channel)
-        latest_perception_state = fetch(perception_state_channel)
-
-        # Use MPC to plan trajectory based on latest state and map route
-        # (steering_angle, target_vel) = mpc_plan(latest_localization_state, latest_perception_state, map, target_road_segment_id)
-
-        # figure out what to do ... setup motion planning problem etc
-        #drive slowly, steering straight
-        steering_angle = 0.0
-        target_vel = 2.0
-        cmd = (steering_angle, target_vel, true)
-        serialize(socket, cmd)
-    end
-end
-
-function isfull(ch::Channel)
-    length(ch.data) ≥ ch.sz_max
-end
-
-
-function my_client(host::IPAddr=IPv4(0), port=4444)
+function my_client(host::IPAddr = IPv4(0), port = 4444; use_gt=true)
     socket = Sockets.connect(host, port)
     map_segments = VehicleSim.city_map()
-    
-    msg = deserialize(socket) # Visualization info
-    @info msg
 
+    # Initial setup message
+    msg = deserialize(socket)
+    while msg isa String
+        @info "Skipping string message: $msg"
+        msg = deserialize(socket)
+    end
+
+    ego_id = msg.vehicle_id
+    target_segment = msg.target_segment
+
+    @info "Connected to VehicleSim. Vehicle ID: $ego_id"
+
+    # Channels
     gps_channel = Channel{GPSMeasurement}(32)
     imu_channel = Channel{IMUMeasurement}(32)
     cam_channel = Channel{CameraMeasurement}(32)
     gt_channel = Channel{GroundTruthMeasurement}(32)
 
-    #localization_state_channel = Channel{MyLocalizationType}(1)
-    #perception_state_channel = Channel{MyPerceptionType}(1)
+    localization_state_channel = Channel{Any}(1)
+    perception_state_channel = Channel{Any}(1)
+    routing_channel = Channel{Any}(1)
+    shutdown_channel = Channel{Bool}(1)
+    put!(shutdown_channel, false)
 
-    target_map_segment = 0 # (not a valid segment, will be overwritten by message)
-    ego_vehicle_id = 0 # (not a valid id, will be overwritten by message. This is used for discerning ground-truth messages)
-
-    errormonitor(@async while true
-        # This while loop reads to the end of the socket stream (makes sure you
-        # are looking at the latest messages)
-        sleep(0.001)
-        local measurement_msg
-        received = false
+    # Measurement listener from socket
+    @async begin
         while true
-            @async eof(socket)
-            if bytesavailable(socket) > 0
-                measurement_msg = deserialize(socket)
-                received = true
-            else
-                break
-            end
-        end
-        !received && continue
-        target_map_segment = measurement_msg.target_segment
-        ego_vehicle_id = measurement_msg.vehicle_id
-        for meas in measurement_msg.measurements
-            if meas isa GPSMeasurement
-                !isfull(gps_channel) && put!(gps_channel, meas)
-            elseif meas isa IMUMeasurement
-                !isfull(imu_channel) && put!(imu_channel, meas)
-            elseif meas isa CameraMeasurement
-                !isfull(cam_channel) && put!(cam_channel, meas)
-            elseif meas isa GroundTruthMeasurement
-                !isfull(gt_channel) && put!(gt_channel, meas)
-            end
-        end
-    end)
+            sleep(0.001)
+            local msg
+            received = false
 
-    @async localize(gps_channel, imu_channel, localization_state_channel)
-    @async perception(cam_channel, localization_state_channel, perception_state_channel)
-    @async decision_making(localization_state_channel, perception_state_channel, map, socket)
+            while true
+                @async eof(socket)
+                if bytesavailable(socket) > 0
+                    msg = deserialize(socket)
+                    received = true
+                else
+                    break
+                end
+            end
+
+            !received && continue
+
+            for meas in msg.measurements
+                if meas isa GPSMeasurement
+                    put!(gps_channel, meas)
+                elseif meas isa IMUMeasurement
+                    put!(imu_channel, meas)
+                elseif meas isa CameraMeasurement
+                    put!(cam_channel, meas)
+                elseif meas isa GroundTruthMeasurement
+                    put!(gt_channel, meas)
+                end
+            end
+
+            # Dynamic routing
+            route = routing(map_segments, ego_id, target_segment)
+            polyline = construct_polyline_from_path(route, map_segments)
+            put!(routing_channel, polyline)
+        end
+    end
+
+    # ========== Choose Input Mode ==========
+    if use_gt
+        @async process_gt(gt_channel, shutdown_channel, localization_state_channel, perception_state_channel)
+    else
+        @async localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)
+
+        @async perception(cam_channel, localization_state_channel, perception_state_channel, shutdown_channel)
+    end
+
+    # ========== Planner Loop ==========
+    @async begin
+        state = :DRIVING
+        stop_timer = 0.0
+        stopped_at_time = 0.0
+    
+        while true
+            fetch(shutdown_channel) && break
+    
+            loc = fetch(localization_state_channel)
+            perception = fetch(perception_state_channel)
+            path = fetch(routing_channel)
+    
+            @info "[Debug] Got localization", loc
+            @info "[Debug] Got perception", perception
+            @info "[Debug] Path size", length(path)
+    
+            obstacles = Planner.get_obstacle_positions(perception)
+    
+            steer, throttle, ok, state, stop_timer, stopped_at_time = plan_motion(loc, obstacles, path, state, stop_timer, stopped_at_time)
+    
+            cmd = VehicleCommand(steer, throttle, ok)
+            serialize(socket, cmd)
+    
+            sleep(0.05)
+        end
+    end    
 end
+
+# 🚗 Run the system
+# my_client(IPv4(0), 4444; use_gt=true)

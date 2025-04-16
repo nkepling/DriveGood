@@ -1,10 +1,3 @@
-module GeometryUtils
-
-export find_lookahead_point
-
-using StaticArrays
-using LinearAlgebra
-
 function find_lookahead_point(path::Vector{SVector{2,Float64}}, position::SVector{2,Float64}, lookahead::Float64, facing::SVector{2,Float64})
     for i in 1:length(path)-1
         p1, p2 = path[i], path[i+1]
@@ -33,6 +26,4 @@ function find_lookahead_point(path::Vector{SVector{2,Float64}}, position::SVecto
     end
 
     return nothing
-end
-
 end
