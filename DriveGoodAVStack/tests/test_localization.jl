@@ -9,6 +9,12 @@ function run_mse(file_path::String)
     data = jldopen(file_path, "r") do file
         Dict(key => read(file, key) for key in keys(file))
     end
+    for (k, v) in data
+        println("key: $k")
+        println("    type: ", typeof(v))
+        println("    value: ", v)
+        println()
+    end
 
     # create channels
     gps_channel               = Channel{GPSMeasurement}(32)
@@ -17,6 +23,12 @@ function run_mse(file_path::String)
     shutdown_channel          = Channel{Bool}(1)
 
     msg = data["msg_buf"]
+    println("Number of messages: ", length(msg))
+    for i in 1:length(msg)
+        for m in msg[i].measurements
+        println(typeof(m), " => ", m)
+        end
+    end
 
     
     loc_task = @async my_localize(
