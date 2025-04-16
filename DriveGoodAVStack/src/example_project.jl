@@ -3,10 +3,7 @@ struct MyLocalizationType
     field2::Float64
 end
 
-struct MyPerceptionType
-    field1::Int
-    field2::Float64
-end
+
 
 
 function process_gt(
@@ -84,30 +81,30 @@ function localize(gps_channel, imu_channel, localization_state_channel, shutdown
     end 
 end
 
-function perception(cam_meas_channel, localization_state_channel, perception_state_channel, shutdown_channel)
-    # set up stuff
-    while true
+# function perception(cam_meas_channel, localization_state_channel, perception_state_channel, shutdown_channel)
+#     # set up stuff
+#     while true
 
-        if fetch(shutdown_channel) == true
-            @info "shutting down"
-            flush(stdout)
-            break
-        end
-        fresh_cam_meas = []
-        while isready(cam_meas_channel)
-            meas = take!(cam_meas_channel)
-            push!(fresh_cam_meas, meas)
-        end
+#         if fetch(shutdown_channel) == true
+#             @info "shutting down"
+#             flush(stdout)
+#             break
+#         end
+#         fresh_cam_meas = []
+#         while isready(cam_meas_channel)
+#             meas = take!(cam_meas_channel)
+#             push!(fresh_cam_meas, meas)
+#         end
 
-        latest_localization_state = fetch(localization_state_channel)
+#         latest_localization_state = fetch(localization_state_channel)
 
-        perception_state = MyPerceptionType(0,0.0)
-        if isready(perception_state_channel)
-            take!(perception_state_channel)
-        end
-        put!(perception_state_channel, perception_state)
-    end
-end
+#         perception_state = MyPerceptionType(0,0.0)
+#         if isready(perception_state_channel)
+#             take!(perception_state_channel)
+#         end
+#         put!(perception_state_channel, perception_state)
+#     end
+# end
 
 function decision_making(localization_state_channel, 
         perception_state_channel, 

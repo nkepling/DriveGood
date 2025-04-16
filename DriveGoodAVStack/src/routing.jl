@@ -1,13 +1,10 @@
 function routing(map,ego_road_segment_id,target_road_segment_id)
     # Dijkstras on an edge list for no assume all road segments are the same distance. 
     # Later we will compute edge weights using lane bounderies divided by speed limit.
-
-
     dist = Dict(k => Inf for k in keys(map))
     prev = Dict(k => nothing for k in keys(map))
 
     Q = PriorityQueue{Int,Float64}()
-
 
     dist[ego_road_segment_id] = 0
 
