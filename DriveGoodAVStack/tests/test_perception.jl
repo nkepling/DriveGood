@@ -4,7 +4,7 @@ using JLD2
 @testset "test perception" begin
     # Load the JLD2 file as a dictionary
     # This data set has not empty CameraMeasurements.
-    data = jldopen("/Users/nathankeplinger/Documents/Vanderbilt/Coursework/2025_Spring/software_for_autonomous_V/project/code/DriveGood/DriveGoodAVStack/tests/msg_buffers/stopped_vehicle_preception_message_buff.jld2", "r") do file
+    data = jldopen("--", "r") do file
         Dict(key => read(file, key) for key in keys(file))
     end
 
@@ -22,25 +22,52 @@ using JLD2
 
     # Seed channels with test data
 
-    msg = data["msg"]
+    msg = data["msg_buf"]
 
     num_msg = length(msg)
 
-    # load the fist 32 measurements # fill the localzation with ground truth for now. 
-    for i in 1:32
-        put!(cam_channel,msg[i].measurements[3])
-        put!(cam_channel,msg[i].measurements[4])
-        # this is the other vehicle
-        put!(gt_channel, msg[i].measurements[6])
-        if i == 32
-            put!(localization_state_channel, msg[i].measurements[5])
-        end
-    end 
+    println("Loading measuments from file")
 
+    for i in 1:15
+        for m in msg[i].measurements
+            if m isa CameraMeasurement
+    
+                try
+                    put!(cam_channel, m)
+                catch e
+                    println("Warning: cam_channel is full, skipping this measurement.")
+                end
+            elseif m isa GroundTruthMeasurement
+                if m.vehicle_id == 1
+                    try
+                        if isready(localization_state_channel)
+                            take!(localization_state_channel)
+                        end
+                        put!(localization_state_channel, m)
+                    catch e
+                        println("Warning: localization_state_channel is full, skipping this measurement.")
+                    end
+                else
+                    try
+                        put!(gt_channel, m)
+                    catch e
+                        println("Warning: gt_channel is full, skipping this measurement.")
+                    end
+                end
+            else
+                # println("Unknown measurement type: $m")
+                continue
+            end
+        end
+    end
+    println("Done Loading measurements from file")
+
+    
     put!(shutdown_channel, true)
 
     # Call perception function with correct arguments
-    DriveGoodAVStack.perception.perception(
+    println("calling perception")
+    DriveGoodAVStack.perception(
         cam_channel,
         localization_state_channel,
         perception_state_channel,
@@ -51,4 +78,5 @@ using JLD2
     @test isready(perception_state_channel)
     result = take!(perception_state_channel)
     @test result isa MyPerceptionType
+    println(result)
 end

@@ -1,6 +1,13 @@
 using LinearAlgebra
 using VehicleSim
-function localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)
+
+struct LocalizationType
+    lat::Float64
+    long::Float64
+    yaw::Float64
+end
+
+function my_localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)
 
     # State vector x: [p_x, p_y, p_z, q_w, q_x, q_y, q_z, v_x, v_y, v_z, ω_x, ω_y, ω_z]
     x_est = zeros(13)
@@ -79,11 +86,12 @@ function localize(gps_channel, imu_channel, localization_state_channel, shutdown
 
             # Update the cov matrix
             I13 = Matrix{Float64}(I, 13, 13)
-            P_update = (I13 - K * H) * P_pred * transpose(I13 - K * H) + K * R_gps * transpose(K)
+            P_update = (I13 - K*H) * Cov_pred * transpose(I13 - K*H) + K * gps_noise * transpose(K)
+
         else
             # if no new GPS measurement is available
             x_update = x_pred
-            P_update = P_pred
+            P_update = Cov_pred
         end
 
         # updates for next prediction
@@ -93,7 +101,7 @@ function localize(gps_channel, imu_channel, localization_state_channel, shutdown
         # push the localization estimate
         
         yaw = VehicleSim.extract_yaw_from_quaternion(x_est[4:7])
-        estimated_state = LocalizationType(round(Int, x_est[1]),round(Int, x_est[2]), yaw)
+        estimated_state = LocalizationType(x_est[1],x_est[2], yaw)
 
         # clear old state on the channel
         if isready(localization_state_channel)

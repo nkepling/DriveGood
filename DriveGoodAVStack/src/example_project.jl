@@ -1,7 +1,3 @@
-struct MyLocalizationType
-    field1::Int
-    field2::Float64
-end
 
 struct MyPerceptionType
     field1::Int
@@ -39,50 +35,11 @@ function process_gt(
     end
 end
 
-
-
-
-
-
 # TODO decide if using bicycle model or point model
 # How should we start localizaiton when program begins
 # Random noise across the entire map?
 # Figure out how to test estimation model
 
-function localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)
-    # Set up algorithm / initialize variables
-    # Read freshest gps data and and the use measurement and process model.
-    #Need to create cov matrix for
-    while true
-        fetch(shutdown_channel) && break # if shutudown state_channel is 1 then break 
-        @info "shutting down"
-
-        fresh_gps_meas = []
-        while isready(gps_channel)
-            meas = take!(gps_channel)
-            push!(fresh_gps_meas, meas)
-        end
-        fresh_imu_meas = []
-        while isready(imu_channel)
-            meas = take!(imu_channel)
-            push!(fresh_imu_meas, meas)
-        end
-        
-        # process measurements
-        # use the rigid_body_dynamics to predict state transition
-        # calculate cov and estimate using math from slides
-        # Then, use gps data gps to correct
-        # Use more EKF math from slides
-    
-
-        localization_state = MyLocalizationType(0,0.0)
-        if isready(localization_state_channel)
-            take!(localization_state_channel)
-        end
-        # Finally, update the estimated state with our calculated one
-        put!(localization_state_channel, localization_state)
-    end 
-end
 
 function perception(cam_meas_channel, localization_state_channel, perception_state_channel, shutdown_channel)
     # set up stuff

@@ -1,66 +1,103 @@
 using JLD2
 using LinearAlgebra
-using VehicleSim  # This imports your measurement types and the localize function.
-using Sockets
+using VehicleSim
 
-# -- load data -------------------------------------------------------
-data = jldopen("DriveGoodAVStack/jld2/message_buff.jld2", "r") do file
-    Dict(key => read(file, key) for key in keys(file))
-end
+include("../src/localization.jl")
 
-msgs = data["msg"]
-num_msgs = length(msgs)
-if num_msgs == 0
-    println("No messages found in the JLD2 file!")
-    exit(1)
-end
+function run_mse(file_path::String)
+    # load data
+    data = jldopen(file_path, "r") do file
+        Dict(key => read(file, key) for key in keys(file))
+    end
 
-# -- Channels -------------------------------------------------------
-gps_channel = Channel{GPSMeasurement}(32)
-imu_channel = Channel{IMUMeasurement}(32)
-localization_state_channel = Channel{VehicleSim.LocalizationType}(1)
-shutdown_channel = Channel{Bool}(1)
+    # create channels
+    gps_channel               = Channel{GPSMeasurement}(32)
+    imu_channel               = Channel{IMUMeasurement}(32)
+    localization_state_channel = Channel{LocalizationType}(1)
+    shutdown_channel          = Channel{Bool}(1)
 
+    msg = data["msg_buf"]
 
-gt_positions = Vector{Vector{Float64}}()
-
-# extract ground-truth measurement and sensor channels
-for i in 1:min(32, num_msgs)
-    gt_meas = msgs[i].measurements[6] :: GroundTruthMeasurement
-    # Convert the ground-truth position (assumed to be an SVector) to a built-in array.
-    pos = collect(gt_meas.position)
-    push!(gt_positions, pos)
     
-    # Create a simulated GPS measurement using the ground-truth x and y values.
-    gps_meas = GPSMeasurement(gt_meas.time, pos[1], pos[2], 0.0)
-    put!(gps_channel, gps_meas)
-    
-    # Create a dummy IMU measurement (all zeros) using built-in arrays.
-    dummy_imu = IMUMeasurement(gt_meas.time, zeros(3), zeros(3))
-    put!(imu_channel, dummy_imu)
+    loc_task = @async my_localize(
+        gps_channel,
+        imu_channel,
+        localization_state_channel,
+        shutdown_channel
+    )
+
+    # arrs to store data 
+    est_xs   = Float64[]
+    est_ys   = Float64[]
+    est_yaws = Float64[]
+    gt_xs    = Float64[]
+    gt_ys    = Float64[]
+    gt_yaws  = Float64[]
+
+    println("Loading measurements and collecting estimates...")
+
+   
+    num_to_process = min(20, length(msg))
+
+    for i in 1:num_to_process
+        for m in msg[i].measurements
+            if m isa GPSMeasurement
+                put!(gps_channel, m)
+
+            elseif m isa IMUMeasurement
+                put!(imu_channel, m)
+
+            elseif m isa GroundTruthMeasurement
+                # compare only if vehicle_id == 1
+                if m.vehicle_id == 1
+                    push!(gt_xs,  m.x)
+                    push!(gt_ys,  m.y)
+                    push!(gt_yaws, m.yaw)
+
+                    # see if we have a new estimate
+                    if isready(localization_state_channel)
+                        est = take!(localization_state_channel)
+                        push!(est_xs,  est.x)
+                        push!(est_ys,  est.y)
+                        push!(est_yaws, est.yaw)
+                    end
+                end
+            end
+        end
+    end
+
+    # shut down the localization loop
+    put!(shutdown_channel, true)
+    wait(loc_task)
+
+    println("Number of ground-truth entries collected: ", length(gt_xs))
+    println("Number of estimate entries collected:     ", length(est_xs))
+
+    # compute MSE
+    n = min(length(gt_xs), length(est_xs))
+    if n == 0
+        @warn "No overlapping ground truth and estimates collected!"
+    else
+        err_x   = 0.0
+        err_y   = 0.0
+        err_yaw = 0.0
+
+        for i in 1:n
+            dx   = gt_xs[i]   - est_xs[i]
+            dy   = gt_ys[i]   - est_ys[i]
+            dyaw = gt_yaws[i] - est_yaws[i]
+            err_x   += dx^2
+            err_y   += dy^2
+            err_yaw += dyaw^2
+        end
+
+        mse_x   = err_x   / n
+        mse_y   = err_y   / n
+        mse_yaw = err_yaw / n
+
+        println("Mean Squared Error:")
+        println("  MSE in x   = $mse_x")
+        println("  MSE in y   = $mse_y")
+        println("  MSE in yaw = $mse_yaw")
+    end
 end
-
-# -- Run Localization -----------------------------------------------------
-# Launch the localization routine asynchronously.
-loc_task = @async localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)
-
-# Allow the localization routine some time to process the sensor data.
-sleep(0.5)
-
-# Retrieve the latest localization estimate.
-est = take!(localization_state_channel)
-# Assume the estimate is of type LocalizationType with integer fields x and y.
-estimated_xy = [est.x, est.y]
-
-# Compare the estimated (x,y) with the ground-truth (x,y) from the last seeded message.
-gt_last = gt_positions[end]
-
-dx = estimated_xy[1] - gt_last[1]
-dy = estimated_xy[2] - gt_last[2]
-mse = dx^2 + dy^2
-
-println("Mean Squared Error (MSE): ", mse)
-
-# -- Shutdown -------------------------------------------------------------
-put!(shutdown_channel, true)
-wait(loc_task)
