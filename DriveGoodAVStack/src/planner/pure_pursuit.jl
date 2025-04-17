@@ -108,8 +108,10 @@ function pure_pursuit(loc::LocalizationType,
     return γ, v_cmd
 end
 
+# include("../localization.jl")
+# using StaticArrays
 function find_lookahead_point(pl::Polyline,
-                              pos::SVector{2,Float64},
+                              pos::Vector{2,Float64},
                               lookahead::Float64)
     best_pt = nothing
     best_prog = -Inf
@@ -145,39 +147,36 @@ end
 # normalize into (–π,π]
 wrap_angle(θ) = mod(θ + π, 2π) - π
 
-function calculate_angle(pl::Polyline,
-    pos::SVector{2,Float64},
-    heading::Float64;
-    lookahead=5.0,
-    speed=2.0)
+# returns target angle
+function pure_pursuit(state::LocalizationType,
+                      pl::Polyline;
+                      ls=0.5,
+                      wheelbase=2.5,
+                      v_des=5.0)
 
-# 1) find lookahead point
-    goal = find_lookahead_point(pl, pos, lookahead)
-    goal === nothing && return (0.0, 0.0, false)
+        pos = SVector(state.lat, state.long)
+        θ   = state.yaw
 
-# 2) vector from vehicle to goal
-    Δ = goal .- pos
+        lookahead = v_des * ls
+        target = find_lookahead_point(pl, pos, lookahead)
 
-# 3) absolute bearing to goal
-    bearing_to_goal = atan2(Δ[2], Δ[1])
-
-# 4) signed angle error = goal_bearing minus current heading
-    angle_error = wrap_angle(bearing_to_goal - heading)
-
-# if the goal is effectively behind us, bail out
-# (optional — you can remove if you still want a “behind” bearing)
-    x_f = dot(SVector(cos(heading), sin(heading)), Δ)
-    if x_f ≤ 0
-        return (0.0, 0.0, false)
-    end
-
-return (angle_error)
+        if target === nothing
+            delta = 0.0
+        else
+            Δ = target .- pos
+            β = atan2(Δ[2], Δ[1])
+            alpha = wrap_angle(β - θ)
+            k = 2*sin(alpha) / lookahead
+            delta = atan(wheelbase * k)
+        end
+        return delta
 end
 
 
 ############ High‑level wrapper ############
 "Return (steering, target_velocity) from a single state/path snapshot."
 # control(loc::LocalizationType, v::Float64, path) = pure_pursuit(loc, v, path)
+
 
 
 
