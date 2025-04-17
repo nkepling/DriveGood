@@ -1,3 +1,4 @@
+
 function process_gt(
     gt_channel::Channel{GroundTruthMeasurement},
     shutdown_channel::Channel{Bool},
@@ -102,8 +103,17 @@ end
 #     children::Vector{Int}
 # end
 
+function estimate_velocity(pos, pos_prev, dt)
+    dx = pos[1] - pos_prev[1]
+    dy = pos[2] - pos_prev[2]
+    return hypot(dx, dy) / dt
+end
 
-
+function estimate_steering_angle(yaw, yaw_prev, v, dt, L)
+    dyaw = normalize_angle(yaw - yaw_prev)
+    yaw_rate = dyaw / dt
+    return atan(L * yaw_rate / (v + 1e-5))  # avoid div by zero
+end
 
 function decision_making(localization_state_channel, 
         perception_state_channel, 
@@ -111,21 +121,52 @@ function decision_making(localization_state_channel,
         shutdown_channel,
         map_segments, 
         socket)
-    # do some setup
 
     path = nothing
     prev_id = nothing
+    waypoints = nothing
     target_id = 0
 
     current_v = 0.0
+    current_steering = 0.0
+    prev_pos = nothing
+    prev_yaw = nothing
+    target_waypoint = nothing
+    target_waypoint_ind = nothing
+    next_segment = nothing
+    prev_time = time()
+
+    road_ids = nothing
+
+    wait_time = nothing
+    has_stopped_at_sign = false
+
+
+    next_is_stop = false
+    next_is_intersection = false
+    is_in_or_approaching_intersection = false
+
+
+        # ---------------------------------------------
+    #  Fast‑turn parameters (used only when needed)
+    # ---------------------------------------------
+    MAX_STEER_INTER   = 1.20      #   69° hard limit
+    MAX_RATE_INTER    = 2.50      # rad / s  (how fast the wheels may move)
+    K_INTER           = 1.5      # Stanley gain
+
+    MAX_STEER_NORMAL  = 0.70      #   40°
+    MAX_RATE_NORMAL   = 1.00      # rad / s
+    K_NORMAL          = 0.40
+    wait_time = nothing
+
+    # target_v = 1.0
+
     while true
         sleep(0.1)
-   
 
         if isready(shutdown_channel)
             shutdown = take!(shutdown_channel)
-            put!(shutdown_channel, shutdown)  # re-insert the flag so other tasks can see it
-
+            put!(shutdown_channel, shutdown)
             if shutdown
                 @info "Shutdown signal received"
                 break
@@ -135,56 +176,170 @@ function decision_making(localization_state_channel,
         latest_localization_state = fetch(localization_state_channel)
         latest_perception_state = fetch(perception_state_channel)
 
+        pos = (latest_localization_state.lat, latest_localization_state.long)
+        target_v = 1.0
+        # wait for stop sigsn
+        if wait_time !== nothing
+            if (wait_time - time()) > 0
+                @info "WAITING"
+                continue
+            else
+                wait_time = nothing
+            end
+        end
+
+        if prev_pos === nothing
+            prev_pos = pos
+            continue  # wait one step to get a valid dt
+        end
+
+        dt = time() - prev_time
+        prev_time = time()
+
+        current_v = estimate_velocity(pos, prev_pos, dt)
+        prev_pos = pos
+
+        # estimate steering angle if not available
+        yaw = latest_localization_state.yaw
+
+        if prev_yaw !== nothing
+            current_steering = estimate_steering_angle(yaw, prev_yaw, current_v, dt, 3)
+        end
+
+        prev_yaw = yaw
+
         while target_id == 0
             target_id = fetch(target_segment_channel)
             @info "Waiting for valid target_id, got: $target_id"
-            sleep(0.1)  # prevent busy spinning
+            sleep(0.1)
         end
 
-        if prev_id === nothing
-            ego_id = find_road_id(map_segments,latest_localization_state)
-            @info "Ego road segment ID: $ego_id"
-            path,road_ids = get_path(map_segments,ego_id,target_id)
-            prev_id = target_id
-        elseif target_id != prev_id
-            ego_id = find_road_id(map_segments,latest_localization_state)
-            @info "Ego road segment ID: $ego_id"
-            path,road_ids = get_path(map_segments,ego_id,target_id)
-            prev_id = target_id
-        end
+        ego_id = find_road_id(map_segments, latest_localization_state)
+        path = routing(map_segments, ego_id, target_id)
+        waypoints, road_ids = DriveGoodAVStack.get_way_points_from_path(path, map_segments)
+        prev_id = target_id
 
-        ego_id = find_road_id(map_segments,latest_localization_state)
-        cur_road_segment= map_segments[ego_id]
-        seg_type = cur_road_segment.lane_types
+    
+
+
+        cur_road_segment = map_segments[ego_id]
         speed_limit = cur_road_segment.speed_limit
 
 
 
 
-        # need a velo estimate
-        @info "call pure_pursuit"
-        #the actual method does not work but the piping is there...
-        # steering_angle,target_vel = pure_pursuit(latest_localization_state,current_v,path;ls=0.5,L=2)
-        # target_vel = min(target_vel,speed_limit/2)
-        # Get list of stop sign ids/coodinate
+ 
+        # --- Control ---
+        k = K_NORMAL
+        max_steering_rate = MAX_RATE_NORMAL # rad/s (smoother)
+        max_accel = 1.0          # m/s²
 
-        # DO PURE PUSUIT TAKE IN CURRENT POSTION AND RETURN (steering, target_velo,true)
-        # streeing_angle,target_vel = pure_pursuit()
-        #
-        # check if reached target_id. if so pause. 
+        next_is_stop = false
+        next_is_intersection = false
 
-        # if obstacles with 3 meters stop and wait for some times. After time elapese check again
+        _ ,target_waypoint_ind = stanley_control(latest_localization_state, current_v, waypoints; k=k)
 
-        # figure out what to do ... setup motion planning problem etc
+        target_waypoint = waypoints[target_waypoint_ind]
+        target_waypoint_road_id = road_ids[target_waypoint_ind]
 
-        cmd = (steering_angle, target_vel, true)
-        current_v = target_vel
-        # @info "Sending command: ", cmd
+        next_segment = map_segments[target_waypoint_road_id]
+        next_segment_type_list = next_segment.lane_types
+
+        for seg_typ in next_segment_type_list
+            if seg_typ == VehicleSim.stop_sign
+                next_is_stop = true
+            elseif seg_typ == VehicleSim.intersection
+                is_in_or_approaching_intersection = true
+            else
+                is_in_or_approaching_intersection = false
+            end
+        end
+
+        for offset in 1:4
+            lookahead_idx = target_waypoint_ind + offset
+            if lookahead_idx <= length(road_ids)
+                segment_id = road_ids[lookahead_idx]
+                segment = map_segments[segment_id]
+                if VehicleSim.intersection in segment.lane_types
+                    is_in_or_approaching_intersection = true
+                    break
+                end
+            end
+        end
+            
+        if is_in_or_approaching_intersection
+            k                 = K_INTER           # sharper correction
+            max_steering_rate = MAX_RATE_INTER    # wheels can move faster
+            max_steering_angle= MAX_STEER_INTER   # wheels can deflect further
+            @info "USING INT CONSTANTS"
+        else
+            k                 = K_NORMAL
+            max_steering_rate = MAX_RATE_NORMAL
+            max_steering_angle= MAX_STEER_NORMAL
+            @info "USING NORMAL"
+        end
+
+        
+
+        cur_is_stop = VehicleSim.stop_sign in cur_road_segment.lane_types
+
+        left_b  = cur_road_segment.lane_boundaries[1].pt_b
+        right_b = cur_road_segment.lane_boundaries[2].pt_b
+        segment_end = 0.5 .* (left_b + right_b)
+
+        dist_to_end = hypot(segment_end[1] - pos[1],
+                            segment_end[2] - pos[2])
+
+        target_steering_angle, target_waypoint_ind = stanley_control(latest_localization_state, current_v, waypoints; k=k)
+       
+        steering_angle = smooth_steering(current_steering, target_steering_angle, max_steering_rate, dt)
+
+
+        steering_angle  = clamp(steering_angle,
+        -max_steering_angle,
+        max_steering_angle)
+
+      
+
+       
+        if cur_is_stop && dist_to_end < 3.0 && !has_stopped_at_sign
+            target_v = 0.0
+            wait_time = time() + 3
+            has_stopped_at_sign = true
+        elseif is_in_or_approaching_intersection && abs(steering_angle) > 0.2
+            target_v = max(target_v, 1.2)  
+        elseif is_in_or_approaching_intersection
+            target_v = 1.0
+        else
+            target_v = 3.0
+        end
+
+        if !cur_is_stop || dist_to_end >= 3.0
+            has_stopped_at_sign = false
+        end
+
+
+        @info "Next waypoint: $target_waypoint"
+        @info "Next waypoint is intersection: $is_in_or_approaching_intersection"
+        @info "Next waypoint is stop_sign: $next_is_stop "
+
+
+        
+        @info "current_v $current_v, target_v $target_v target_steering_angle $target_steering_angle"
+
+        if target_v < current_v
+            max_accel = 2.0
+        else
+            max_accel = 1.0
+        end
+        speed = smooth_velocity(current_v, target_v, max_accel, dt)
+       
+        cmd = (steering_angle, speed, true)
         serialize(socket, cmd)
-        @info "sending cmd: target_vel: $target_vel, steering_angle: $steering_angle"
-
+        @info "Cmd sent: speed = $(round(speed, digits=2)), steer = $(round(steering_angle, digits=3))"
     end
-     @info "SHUTTING DOWN DM process"
+
+    @info "SHUTTING DOWN DM process"
 end
 
 function isfull(ch::Channel)

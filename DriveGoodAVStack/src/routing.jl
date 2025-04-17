@@ -279,7 +279,7 @@ function get_way_points_from_path(path, road_map)
     road_id = Vector{Int}()
     first = true
     for id in path
-        centerline = get_center_line(road_map[id], num_points=4)
+        centerline = get_center_line(road_map[id], num_points=10)
         if first
             append!(waypoints, centerline)
             n = length(centerline)
