@@ -41,7 +41,7 @@ function my_localize(gps_channel, imu_channel, localization_state_channel, shutd
     state_noise = Matrix{Float64}(I, 13, 13) * 1e-2
 
     # GPS meas noise cov. GPS[lat, long, heading].
-    gps_noise = Diagonal([1, 1, 0.1])
+    gps_noise = Diagonal([1, 1, 0.05])
 
     last_imu_time = first_imu.time
     last_gps_time = first_gps.time
