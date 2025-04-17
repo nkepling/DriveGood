@@ -10,22 +10,36 @@ end
 function my_localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)
 
     # State vector x: [p_x, p_y, p_z, q_w, q_x, q_y, q_z, v_x, v_y, v_z, ω_x, ω_y, ω_z]
+    while !isready(gps_channel)
+        sleep(0.01)
+    end
+    first_gps = take!(gps_channel)
+
     x_est = zeros(13)
     # quaternion is identity 
-    x_est[4] = 1.0
+
+    x_est[1] = first_gps.lat
+    x_est[2] = first_gps.long
+    yaw = first_gps.heading
+    x_est[4] = cos(yaw / 2)
+    x_est[5] = 0.0
+    x_est[6] = 0.0
+    x_est[7] = sin(yaw / 2)
+    
 
     # initial cov
-    Cov_est = Matrix{Float64}(I, 13, 13) * 1e-2
+    Cov_est = Matrix{Float64}(I, 13, 13) * 1e-1
 
     # noise cov matrix 
-    state_noise = Matrix{Float64}(I, 13, 13) * 1e-3
+    state_noise = Matrix{Float64}(I, 13, 13) * 1e-2
 
     # GPS meas noise cov. GPS[lat, long, heading].
-    gps_noise = Diagonal([1.0, 1.0, 0.1])
+    gps_noise = Diagonal([1, 1, 0.1])
 
     # system time to compute dt
-    last_time = time()
+    last_time = first_gps.time
 
+    # ================= Main Loop =========================
     while true
         # collect fresh measurements 
         fresh_gps_meas = []
@@ -33,6 +47,7 @@ function my_localize(gps_channel, imu_channel, localization_state_channel, shutd
             meas = take!(gps_channel)
             push!(fresh_gps_meas, meas)
         end
+        
 
         fresh_imu_meas = []
         while isready(imu_channel)
@@ -64,16 +79,16 @@ function my_localize(gps_channel, imu_channel, localization_state_channel, shutd
         if !isempty(fresh_gps_meas)
             gps_meas = fresh_gps_meas[end]
 
-            # maybe unneeded no idea, depends if gps meas is sending type or vector
+        
             z_gps = [gps_meas.lat, gps_meas.long, gps_meas.heading]
-            
+        
             # predicted measurement using our process model output.
             z_hat = VehicleSim.h_gps(x_pred)
             # measurement Jacobian evaluated at the predicted state.
             H = VehicleSim.Jac_h_gps(x_pred)
-            
             # Compute residual between actual and predicted
             y = z_gps .- z_hat
+            #y = z_gps .- z_hat
             # Compute residual cov
             S = H * Cov_pred * transpose(H) + gps_noise
             # Kalman gain.
@@ -113,9 +128,8 @@ function my_localize(gps_channel, imu_channel, localization_state_channel, shutd
         # sleep briefly
         sleep(0.01)
 
-        if fetch(shutdown_channel) == true
+        if isready(shutdown_channel) && take!(shutdown_channel) == true
             @info "shutting down"
-            flush(stdout)
             break
         end
     end 

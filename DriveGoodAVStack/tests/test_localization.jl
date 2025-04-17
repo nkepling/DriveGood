@@ -3,34 +3,19 @@ using LinearAlgebra
 using VehicleSim
 
 include("../src/localization.jl")
-
 function run_mse(file_path::String)
     # load data
     data = jldopen(file_path, "r") do file
         Dict(key => read(file, key) for key in keys(file))
     end
-    for (k, v) in data
-        println("key: $k")
-        println("    type: ", typeof(v))
-        println("    value: ", v)
-        println()
-    end
 
-    # create channels
     gps_channel               = Channel{GPSMeasurement}(32)
     imu_channel               = Channel{IMUMeasurement}(32)
     localization_state_channel = Channel{LocalizationType}(1)
     shutdown_channel          = Channel{Bool}(1)
 
     msg = data["msg_buf"]
-    println("Number of messages: ", length(msg))
-    for i in 1:length(msg)
-        for m in msg[i].measurements
-        println(typeof(m), " => ", m)
-        end
-    end
 
-    
     loc_task = @async my_localize(
         gps_channel,
         imu_channel,
@@ -38,7 +23,6 @@ function run_mse(file_path::String)
         shutdown_channel
     )
 
-    # arrs to store data 
     est_xs   = Float64[]
     est_ys   = Float64[]
     est_yaws = Float64[]
@@ -48,10 +32,10 @@ function run_mse(file_path::String)
 
     println("Loading measurements and collecting estimates...")
 
-   
-    num_to_process = min(20, length(msg))
+    num_to_process =   length(msg)
 
     for i in 1:num_to_process
+        # Push all measurements from msg[i]
         for m in msg[i].measurements
             if m isa GPSMeasurement
                 put!(gps_channel, m)
@@ -60,25 +44,37 @@ function run_mse(file_path::String)
                 put!(imu_channel, m)
 
             elseif m isa GroundTruthMeasurement
-                # compare only if vehicle_id == 1
+                # Compare only if vehicle_id == 1
                 if m.vehicle_id == 1
-                    push!(gt_xs,  m.x)
-                    push!(gt_ys,  m.y)
-                    push!(gt_yaws, m.yaw)
+                    push!(gt_xs,  m.position[1])
+                    push!(gt_ys,  m.position[2])
+                    yaw = VehicleSim.extract_yaw_from_quaternion(m.orientation)
+                    push!(gt_yaws, yaw)
 
-                    # see if we have a new estimate
-                    if isready(localization_state_channel)
+                    # Here we can try to grab any new estimates that
+                    # the localization task might have produced
+                    while isready(localization_state_channel)
                         est = take!(localization_state_channel)
-                        push!(est_xs,  est.x)
-                        push!(est_ys,  est.y)
+                        push!(est_xs,  est.lat)
+                        push!(est_ys,  est.long)
                         push!(est_yaws, est.yaw)
                     end
                 end
             end
         end
+
+        # Give the localization task a chance to run its loop
+        # so it can consume the above measurements and produce an estimate.
+        # A small sleep or yield() will do.
+        sleep(0.01)
+        # or just yield()
+        # yield()
     end
 
-    # shut down the localization loop
+    # Let the localization task finish processing any final measurements
+    sleep(0.5)
+
+    # Now shut it down
     put!(shutdown_channel, true)
     wait(loc_task)
 
@@ -95,6 +91,19 @@ function run_mse(file_path::String)
         err_yaw = 0.0
 
         for i in 1:n
+            print("X est")
+            print(gt_xs[i])
+            print(" ")
+            print(est_xs[i])
+            print("y est")
+            print(gt_ys[i])
+            print(" ")
+            print(est_ys[i])
+            print("yaw est")
+            print(gt_yaws[i])
+            print(" ")
+            print(est_yaws[i])
+            print("\n")
             dx   = gt_xs[i]   - est_xs[i]
             dy   = gt_ys[i]   - est_ys[i]
             dyaw = gt_yaws[i] - est_yaws[i]
