@@ -21,6 +21,72 @@ function compute_control(path::Vector{SVector{2,Float64}}, pos::SVector{2,Float6
     return (steering, speed, true)
 end
 
+function find_lookahead_point(pl::Polyline,
+                              pos::SVector{2,Float64},
+                              lookahead::Float64)
+    best_pt = nothing
+    best_prog = -Inf
+    cum_dist = 0.0
+
+    for seg in pl.segments
+        if seg isa StandardSegment
+            p1, p2 = seg.p1, seg.p2
+            d = p2 - p1
+            a = dot(d,d)
+            b = 2 * dot(p1 .- pos, d)
+            c = dot(p1 .- pos, p1 .- pos) - lookahead^2
+            disc = b^2 - 4a*c
+            if disc ≥ 0
+                sqrt_disc = sqrt(disc)
+                for t in ((-b + sqrt_disc)/(2a), (-b - sqrt_disc)/(2a))
+                    if 0.0 ≤ t ≤ 1.0
+                        pt = p1 + t*d
+                        prog = cum_dist + norm(d)*t
+                        if prog > best_prog
+                            best_prog, best_pt = prog, pt
+                        end
+                    end
+                end
+            end
+            cum_dist += norm(d)
+        end
+    end
+
+    return best_pt
+end
+
+# normalize into (–π,π]
+wrap_angle(θ) = mod(θ + π, 2π) - π
+
+function calculate_angle(pl::Polyline,
+    pos::SVector{2,Float64},
+    heading::Float64;
+    lookahead=5.0,
+    speed=2.0)
+
+# 1) find lookahead point
+    goal = find_lookahead_point(pl, pos, lookahead)
+    goal === nothing && return (0.0, 0.0, false)
+
+# 2) vector from vehicle to goal
+    Δ = goal .- pos
+
+# 3) absolute bearing to goal
+    bearing_to_goal = atan2(Δ[2], Δ[1])
+
+# 4) signed angle error = goal_bearing minus current heading
+    angle_error = wrap_angle(bearing_to_goal - heading)
+
+# if the goal is effectively behind us, bail out
+# (optional — you can remove if you still want a “behind” bearing)
+    x_f = dot(SVector(cos(heading), sin(heading)), Δ)
+    if x_f ≤ 0
+        return (0.0, 0.0, false)
+    end
+
+return (angle_error)
+end
+
 
 
 # function control(state_ch, control_ch, stop_ch, path)
