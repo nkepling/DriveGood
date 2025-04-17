@@ -132,7 +132,7 @@ function perception(cam_meas_channel, localization_state_channel, perception_sta
             push!(fresh_cam_meas, meas)
         end
         @info "Done Grabing Measurements"
-        
+        # TODO: fix this
         loc = fetch(localization_state_channel)
         ego_position =loc.position
         orientation_quaternion =loc.orientation
