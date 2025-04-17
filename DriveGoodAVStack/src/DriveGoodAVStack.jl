@@ -23,11 +23,11 @@ include("planner/pure_pursuit.jl")
 include("planner/planner.jl")
 include("decision/decision_making.jl")
 include("gt/gt.jl")
-include("example_project.jl")
-include("routing.jl")
+# include("example_project.jl")
+include("dummy_control.jl")
 
-export my_client,perception,GPSMeasurement,MyPerceptionType,MyLocalizationType,GroundTruthMeasurement,IMUMeasurement,CameraMeasurement, routing, get_polyline,get_way_points_from_path
 
+export my_client,perception,GPSMeasurement,MyPerceptionType,LocalizationType,GroundTruthMeasurement,IMUMeasurement,CameraMeasurement, routing, get_polyline,get_way_points_from_path, EstimatedVehicleState
 
 
 
