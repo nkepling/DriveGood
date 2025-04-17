@@ -1,10 +1,5 @@
 include("../localization.jl")
 using StaticArrays
-function driver(pl::Polyline, loc::LocalizationType)
-    angle = calculate_angle(pl, [loc.lat, loc.long], loc.yaw)
-    return angle
-end
-
 function find_lookahead_point(pl::Polyline,
                               pos::Vector{2,Float64},
                               lookahead::Float64)
@@ -49,16 +44,14 @@ function pure_pursuit(state::LocalizationType,
                       wheelbase=2.5,
                       v_des=5.0)
 
-        loc = fetch(state_ch)
-        pos = SVector(loc.lat, loc.long)
-        θ   = loc.yaw
+        pos = SVector(state.lat, state.long)
+        θ   = state.yaw
 
         lookahead = v_des * ls
         target = find_lookahead_point(pl, pos, lookahead)
 
         if target === nothing
-            δ = 0.0
-            v_t = 0.0
+            delta = 0.0
         else
             Δ = target .- pos
             β = atan2(Δ[2], Δ[1])
