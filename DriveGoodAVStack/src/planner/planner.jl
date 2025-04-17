@@ -1,15 +1,15 @@
 const STOP_DIST = 3.5
 const PULLOUT_DIST = 3.0
 
-function wrap_angle(θ)
-    while θ > π
-        θ -= 2π
-    end
-    while θ < -π
-        θ += 2π
-    end
-    return θ
-end
+# function wrap_angle(θ)
+#     while θ > π
+#         θ -= 2π
+#     end
+#     while θ < -π
+#         θ += 2π
+#     end
+#     return θ
+# end
 
 function plan_motion(loc, obstacles, path, state, stop_timer, stopped_at_time)
     pos = SVector(loc.position[1], loc.position[2])

@@ -1,25 +1,117 @@
-function compute_control(path::Vector{SVector{2,Float64}}, pos::SVector{2,Float64}, heading::Float64;
-        lookahead=5.0, speed=2.0, wheelbase=2.5)
+# function compute_control(path::Vector{SVector{2,Float64}}, pos::SVector{2,Float64}, heading::Float64;
+#         lookahead=5.0, speed=2.0, wheelbase=2.5)
 
-    direction = SVector(cos(heading), sin(heading))
-    goal = find_lookahead_point(path, pos, lookahead, direction)
+#     direction = SVector(cos(heading), sin(heading))
+#     goal = find_lookahead_point(path, pos, lookahead, direction)
 
-    if goal === nothing
-        return (0.0, 0.0, false)
+#     if goal === nothing
+#         return (0.0, 0.0, false)
+#     end
+
+#     rel = goal - pos
+#     x_local = dot(rel, direction)
+#     y_local = cross(direction, rel)
+
+#     if x_local ≤ 0
+#         return (0.0, 0.0, false)
+#     end
+
+#     curvature = (2 * y_local) / (lookahead^2)
+#     steering = atan(wheelbase * curvature)
+#     return (steering, speed, true)
+# end
+
+
+############ Utilities ############
+"Wrap any angle to (‑π, π]."
+wrap_angle(θ) = mod(θ + π, 2π) - π
+
+
+############ Pure‑Pursuit Control ############
+"""
+    pure_pursuit(loc::LocalizationType,
+                 v::Float64,
+                 path; ls = 0.5, L = 3)
+
+Compute one pure‑pursuit control step.
+
+* `loc` – current pose (lat = y, long = x, yaw).
+* `v`   – current speed (m s‑¹).
+* `path`– object with `segments::Vector{StandardSegment}` where
+          each `StandardSegment` has `p1, p2 :: SVector{2,Float64}`.
+* `ls`  – look‑ahead‑gain (s).  Default 0.5 s.
+* `L`   – vehicle wheel‑base (m). Default 3 m.
+
+Returns `(γ, v_cmd)`:  
+* `γ`     – steering angle (radians, sign‑convention: + = left).  
+* `v_cmd` – target speed (m s‑¹).
+"""
+function pure_pursuit(loc::LocalizationType,
+                      v::Float64,
+                      path;
+                      ls = 0.5,
+                      L  = 3)
+
+    # ───────── geometry helpers ─────────
+    lookahead     = max(v, 0.1) * ls            # never 0
+    car_pos       = SVector(loc.long, loc.lat)   # (x, y)
+    best_progress = -Inf
+    target_pt     = nothing
+    cum_dist      = 0.0
+
+    for seg in path.segments
+        seg isa StandardSegment || continue
+
+        s1, s2        = seg.p1, seg.p2
+        dir_vec       = s2 - s1
+        to_center     = s1 - car_pos
+
+        # Solve ‖s1 + t·dir_vec – car_pos‖² = lookahead²  for  0 ≤ t ≤ 1
+        a = dot(dir_vec, dir_vec)
+        b = 2dot(to_center, dir_vec)
+        c = dot(to_center, to_center) - lookahead^2
+        disc = b^2 - 4a*c
+        disc < 0 && (cum_dist += norm(dir_vec); continue)
+
+        √disc = sqrt(disc)
+        for t in ((-b + √disc)/(2a), (-b - √disc)/(2a))
+            0.0 ≤ t ≤ 1.0 || continue
+            pt        = s1 + t*dir_vec
+            progress  = cum_dist + t*norm(dir_vec)
+            if progress > best_progress
+                best_progress = progress
+                target_pt     = pt
+            end
+        end
+        cum_dist += norm(dir_vec)
     end
 
-    rel = goal - pos
-    x_local = dot(rel, direction)
-    y_local = cross(direction, rel)
-
-    if x_local ≤ 0
-        return (0.0, 0.0, false)
+    # ───────── steering + speed law ─────────
+    if target_pt === nothing
+        γ = 0.0            # no target found → keep wheels straight
+    else
+        dx, dy          = target_pt .- car_pos
+        heading_target  = atan(dy, dx)
+        α               = wrap_angle(heading_target - loc.yaw)
+        γ               = atan(2L * sin(α) / lookahead)
     end
 
-    curvature = (2 * y_local) / (lookahead^2)
-    steering = atan(wheelbase * curvature)
-    return (steering, speed, true)
+    # Simple speed adaptation: slow in tight turns, speed on straights
+    if abs(γ) > 0.10
+        v_cmd = max(v - 0.75, 0)      # brake a bit
+    elseif abs(γ) < 0.10 && v < 5
+        v_cmd = v + 1.0               # accelerate gently
+    else
+        v_cmd = v                     # hold speed
+    end
+
+    return γ, v_cmd
 end
+
+
+############ High‑level wrapper ############
+"Return (steering, target_velocity) from a single state/path snapshot."
+# control(loc::LocalizationType, v::Float64, path) = pure_pursuit(loc, v, path)
 
 
 

@@ -107,12 +107,12 @@ end
 
 
 
-function routing(map,ego_road_segment_id,target_road_segment_id)
+function routing(road_map,ego_road_segment_id,target_road_segment_id)
     # Dijkstras on an edge list for no assume all road segments are the same distance. 
     # Later we will compute edge weights using lane bounderies divided by speed limit.
-    dist = Dict(k => Inf for k in keys(map))
+    dist = Dict(k => Inf for k in keys(road_map))
     prev = Dict{Int, Union{Nothing, Int}}()
-    for k in keys(map)
+    for k in keys(road_map)
         prev[k] = nothing
     end
 
@@ -134,7 +134,7 @@ function routing(map,ego_road_segment_id,target_road_segment_id)
             break
         end
 
-        for v in map[u].children 
+        for v in road_map[u].children 
             alt = dist[u] + 1.0 # the distance here is assumed to be 1 but in reality it should probablyt be a time (Roadsegment_dist * 1/(speed_limit))
             if alt < dist[v]
                 dist[v] = alt
@@ -263,10 +263,10 @@ function get_center_line(seg; num_points=20)
 end
 
 
-# function get_way_points_from_path(path,map)
+# function get_way_points_from_path(path,road_map)
 #     waypoints = []
 #     for id in path
-#         centerline = get_center_line(map[id],num_points=3)
+#         centerline = get_center_line(road_map[id],num_points=3)
 #         append!(waypoints,centerline)
 #     end
 
@@ -274,12 +274,12 @@ end
 # end
 
 
-function get_way_points_from_path(path, map)
+function get_way_points_from_path(path, road_map)
     waypoints = Vector{Vector{Float64}}()
     road_id = Vector{Int}()
     first = true
     for id in path
-        centerline = get_center_line(map[id], num_points=4)
+        centerline = get_center_line(road_map[id], num_points=4)
         if first
             append!(waypoints, centerline)
             n = length(centerline)
@@ -303,11 +303,52 @@ function get_polyline(waypoints)
 
 end
 
-function get_path(map,ego_id,target_segment_id)
-    path_ids = routing(map,ego_id,target_segment_id)
-    waypoints, road_ids = get_way_points_from_path(path_ids, map)
+function get_path(road_map,ego_id,target_segment_id)
+    path_ids = routing(road_map,ego_id,target_segment_id)
+    waypoints, road_ids = get_way_points_from_path(path_ids, road_map)
     pl = DriveGoodAVStack.Polyline(waypoints)
     return (pl,road_ids)
 end
 
 
+function get_segment_centroids(road_map)
+    centroids = Dict{Int, SVector{2, Float64}}()
+
+    for (id, segment) in road_map
+        midpoints = SVector{2, Float64}[]
+
+        for lb in segment.lane_boundaries
+            midpoint = 0.5 * (lb.pt_a + lb.pt_b)
+            push!(midpoints, midpoint)
+        end
+
+        if !isempty(midpoints)
+            centroid = sum(midpoints) / length(midpoints)
+            centroids[id] = centroid
+        else
+            @warn "Segment $id has no lane boundaries; skipping centroid."
+        end
+    end
+
+    return centroids  # Dict{Int, SVector{2,Float64}}: segment_id => centroid
+end
+
+
+
+function find_road_id(road_map, loc)
+    x, y = loc.lat, loc.long  # lat = vertical (y), long = horizontal (x)
+
+    centroids = get_segment_centroids(road_map)
+    closest_id = nothing
+    min_dist = Inf
+
+    for (segment_id, centroid) in centroids
+        dist = norm(SVector(x, y) - centroid)
+        if dist < min_dist
+            min_dist = dist
+            closest_id = segment_id
+        end
+    end
+
+    return closest_id
+end
