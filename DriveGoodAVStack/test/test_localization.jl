@@ -91,15 +91,15 @@ function run_mse(file_path::String)
         err_yaw = 0.0
 
         for i in 1:n
-            print("X est")
+            print("X est ")
             print(gt_xs[i])
             print(" ")
             print(est_xs[i])
-            print("y est")
+            print("y est ")
             print(gt_ys[i])
             print(" ")
             print(est_ys[i])
-            print("yaw est")
+            print("yaw est ")
             print(gt_yaws[i])
             print(" ")
             print(est_yaws[i])
