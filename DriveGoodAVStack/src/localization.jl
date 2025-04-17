@@ -46,7 +46,6 @@ function my_localize(gps_channel, imu_channel, localization_state_channel, shutd
     # system time to compute dt
     last_time = first_gps.time
     last_gps = first_gps
-    last_imu =first_imu
 
     # ================= Main Loop =========================
     while true
@@ -106,31 +105,6 @@ function my_localize(gps_channel, imu_channel, localization_state_channel, shutd
         I13 = Matrix{Float64}(I, 13, 13)
         P_update = (I13 - K*H) * Cov_pred * transpose(I13 - K*H) + K * gps_noise * transpose(K)
         
-        # # --- after  GPS x_update and P_update ---
-        # # build the IMU “measurement”
-        z_imu = vcat( last_imu.linear_vel,
-        last_imu.angular_vel )        # 6×1
-
-        # measurement Jacobian picks out states 8–13
-        H_imu = zeros(6,13)
-        H_imu[:, 8:13] .= I(6)
-
-        # covariance on your IMU readings (tune these)
-        R_imu = Diagonal(vcat(fill(1,3), fill(0.1,3)))
-
-        # residual
-        y_imu = z_imu .- x_update[8:13]
-
-        # Kalman‐gain
-        S_imu = H_imu * P_update * H_imu' + R_imu
-        K_imu = P_update * H_imu' * inv(S_imu)
-
-        # state & cov updates
-        x_update = x_update .+ K_imu * y_imu
-        P_update = (I - K_imu*H_imu) * P_update * (I - K_imu*H_imu)' + K_imu*R_imu*K_imu'
-
-        # normalize quaternion again
-        x_update[4:7] ./= norm(x_update[4:7])
 
         # write back
         x_est   .= x_update
