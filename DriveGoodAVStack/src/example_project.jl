@@ -37,6 +37,37 @@ function process_gt(
 end
 
 
+function process_gt(
+    gt_channel,
+    shutdown_channel,
+    localization_state_channel,
+    perception_state_channel)
+
+
+    while true
+        if isready(shutdown_channel)
+            fetch(shutdown_channel) && break
+        end
+
+
+        fresh_gt_meas = []
+        while isready(gt_channel)
+            meas = take!(gt_channel)
+            push!(fresh_gt_meas, meas)
+        end
+
+        # process the fresh gt_measurements to produce localization_state and
+        # perception_state
+        
+        take!(localization_state_channel)
+        put!(localization_state_channel, new_localization_state_from_gt)
+        
+        take!(perception_state_channel)
+        put!(perception_state_channel, new_perception_state_from_gt)
+    end
+end
+
+
 
 
 

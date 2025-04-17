@@ -10,5 +10,6 @@
 
 
     # some how make user EKF estimate matches measuments in gt_buffer...
+    # Calculate squared distance between GT and Estimate, make sure it's below some theshold. 
     
 end

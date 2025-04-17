@@ -13,6 +13,7 @@ using Rotations
 include("client.jl")
 include("routing.jl")
 include("perception.jl")
+include("localization.jl")
 include("example_project.jl")
 
 export my_client,perception,GPSMeasurement,MyPerceptionType,MyLocalizationType,GroundTruthMeasurement,IMUMeasurement,CameraMeasurement
