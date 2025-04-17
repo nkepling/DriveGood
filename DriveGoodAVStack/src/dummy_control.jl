@@ -5,7 +5,17 @@ function process_gt(
     perception_state_channel::Channel{MyPerceptionType}
 )
     while true
-        fetch(shutdown_channel) && break
+        # fetch(shutdown_channel) && break
+
+        if isready(shutdown_channel)
+            shutdown = take!(shutdown_channel)
+            put!(shutdown_channel, shutdown)  # re-insert the flag so other tasks can see it
+        
+            if shutdown
+                @info "Shutdown signal received"
+                break
+            end
+        end
 
         fresh_gt_meas = GroundTruthMeasurement[]
         while isready(gt_channel)
@@ -70,42 +80,111 @@ function process_gt(
             estimated_states
         )
 
-        # === Step 4: Send results ===
         if isready(localization_state_channel)
             take!(localization_state_channel)
         end
         put!(localization_state_channel, new_localization_state_from_gt)
-
+    
         if isready(perception_state_channel)
             take!(perception_state_channel)
         end
-     
+        put!(perception_state_channel, new_perception_state_from_gt)
     end
     @info "SHUTTING DOWN GT process"
 end
+
+
+# mutable struct RoadSegment
+#     id::Int
+#     lane_boundaries::Vector{LaneBoundary}
+#     lane_types::Vector{LaneTypes}
+#     speed_limit::Float64
+#     children::Vector{Int}
+# end
+
+
 
 
 function decision_making(localization_state_channel, 
         perception_state_channel, 
         target_segment_channel,
         shutdown_channel,
-        map, 
+        map_segments, 
         socket)
     # do some setup
 
+    path = nothing
+    prev_id = nothing
+    target_id = 0
 
+    current_v = 0.0
     while true
+        sleep(0.1)
+   
 
-        fetch(shutdown_channel) && break
+        if isready(shutdown_channel)
+            shutdown = take!(shutdown_channel)
+            put!(shutdown_channel, shutdown)  # re-insert the flag so other tasks can see it
+
+            if shutdown
+                @info "Shutdown signal received"
+                break
+            end
+        end
+
         latest_localization_state = fetch(localization_state_channel)
         latest_perception_state = fetch(perception_state_channel)
+
+        while target_id == 0
+            target_id = fetch(target_segment_channel)
+            @info "Waiting for valid target_id, got: $target_id"
+            sleep(0.1)  # prevent busy spinning
+        end
+
+        if prev_id === nothing
+            ego_id = find_road_id(map_segments,latest_localization_state)
+            @info "Ego road segment ID: $ego_id"
+            path,road_ids = get_path(map_segments,ego_id,target_id)
+            prev_id = target_id
+        elseif target_id != prev_id
+            ego_id = find_road_id(map_segments,latest_localization_state)
+            @info "Ego road segment ID: $ego_id"
+            path,road_ids = get_path(map_segments,ego_id,target_id)
+            prev_id = target_id
+        end
+
+        ego_id = find_road_id(map_segments,latest_localization_state)
+        cur_road_segment= map_segments[ego_id]
+        seg_type = cur_road_segment.lane_types
+        speed_limit = cur_road_segment.speed_limit
+
+
+
+
+        # need a velo estimate
+        @info "call pure_pursuit"
+        #the actual method does not work but the piping is there...
+        # steering_angle,target_vel = pure_pursuit(latest_localization_state,current_v,path;ls=0.5,L=2)
+        # target_vel = min(target_vel,speed_limit/2)
+        # Get list of stop sign ids/coodinate
+
+        # DO PURE PUSUIT TAKE IN CURRENT POSTION AND RETURN (steering, target_velo,true)
+        # streeing_angle,target_vel = pure_pursuit()
+        #
+        # check if reached target_id. if so pause. 
+
+        # if obstacles with 3 meters stop and wait for some times. After time elapese check again
+
         # figure out what to do ... setup motion planning problem etc
-        steering_angle = 0.0
-        target_vel = 10.0
+
         cmd = (steering_angle, target_vel, true)
-        @info "Sending command: ", cmd
+        current_v = target_vel
+        # @info "Sending command: ", cmd
         serialize(socket, cmd)
+        @info "sending cmd: target_vel: $target_vel, steering_angle: $steering_angle"
+
     end
+     @info "SHUTTING DOWN DM process"
 end
 
 function isfull(ch::Channel)
@@ -129,6 +208,7 @@ function my_client(host::IPAddr=IPv4(0), port=4444; use_gt=false)
     target_segment_channel = Channel{Int}(1)
     shutdown_channel = Channel{Bool}(1)
     put!(shutdown_channel, false)
+
 
     put!(localization_state_channel, LocalizationType(0.0, 0.0, 0.0))
     put!(perception_state_channel, MyPerceptionType(0.0, []))
@@ -197,10 +277,10 @@ function my_client(host::IPAddr=IPv4(0), port=4444; use_gt=false)
                            perception_state_channel, 
                            target_segment_channel, 
                            shutdown_channel,
-                           map, 
+                           map_segments, 
                            socket))
+    shutdown_listener(shutdown_channel)
 
-    return shutdown_channel
 end
 
 function shutdown_listener(shutdown_channel)

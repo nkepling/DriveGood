@@ -352,7 +352,7 @@ function process_camera_data(fresh_cam_meas,loc)
         X_cam =  x_img * Z_cam / f          
         Y_cam = y_img * Z_cam / f          
             
-        @infiltrate
+
         push!(est_states, (camera_id, SVector{3,Float64}(X_cam, Y_cam, Z_cam), Z_cam))
     end
 

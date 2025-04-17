@@ -3,6 +3,7 @@ using JLD2
 using Infiltrator
 using VehicleSim
 using DriveGoodAVStack
+using StaticArrays
 
 @testset "test routing" begin
     map = VehicleSim.city_map()
@@ -16,7 +17,7 @@ using DriveGoodAVStack
     @test path[1] == starting_id
     @test path[end] == target_id
 
-    @info "$path"
+    # @info "$path"
 
     #get coordinate waypoints 
     way_points,road_ids = DriveGoodAVStack.get_way_points_from_path(path,map)
@@ -35,9 +36,9 @@ using DriveGoodAVStack
     end_center   = 0.5 .* (left_b + right_b)
 
     start_way_point  = way_points[1]
-    @info "start_way_point $start_way_point"
+    # @info "start_way_point $start_way_point"
 
-    @info "expected start $start_center"
+    # @info "expected start $start_center"
 
     @test isapprox(start_way_point,start_center)
   
@@ -98,3 +99,69 @@ end
 
     @test length(waypoints) == length(road_ids)
 end
+
+
+ 
+@testset "test get_segment_centroids" begin
+    # Define two lane boundaries for a segment
+    lb1 = VehicleSim.LaneBoundary(SVector(0.0, 0.0), SVector(2.0, 0.0), 0.0, false, true)
+    lb2 = VehicleSim.LaneBoundary(SVector(0.0, 2.0), SVector(2.0, 2.0), 0.0, false, true)
+
+    segment = VehicleSim.RoadSegment(
+        1,
+        [lb1, lb2],          # lane_boundaries
+        [],                  # lane_types
+        25.0,                # speed_limit
+        Int[]                # children
+    )
+
+    # Create the fake map
+    map = Dict(1 => segment)
+
+    # Compute centroid
+    centroids = get_segment_centroids(map)
+
+    # Expected centroid:
+    # Midpoints: [(1.0, 0.0), (1.0, 2.0)] → average is (1.0, 1.0)
+    expected = SVector(1.0, 1.0)
+
+    @test haskey(centroids, 1)
+    @test isapprox(centroids[1], expected; atol=1e-8)
+
+    map = VehicleSim.city_map()
+
+    centroids = get_segment_centroids(map)  
+
+
+
+    # @info centroids
+end
+
+
+@testset "test find_road_id" begin
+    # Define dummy lane boundaries for two segments
+    lb1 = VehicleSim.LaneBoundary(SVector(0.0, 0.0), SVector(2.0, 0.0), 0.0, false, true)
+    lb2 = VehicleSim.LaneBoundary(SVector(4.0, 0.0), SVector(6.0, 0.0), 0.0, false, true)
+
+    segment1 = VehicleSim.RoadSegment(1, [lb1], [], 25.0, [])
+    segment2 =VehicleSim.RoadSegment(2, [lb2], [], 25.0, [])
+
+    # Build the map
+    map = Dict(1 => segment1, 2 => segment2)
+
+    # A location closer to segment1
+    loc1 = DriveGoodAVStack.LocalizationType(0.5, 0.0, 0.0)  # Near (1.0, 0.0)
+    id1 = DriveGoodAVStack.find_road_id(map, loc1)
+    @test id1 == 1
+
+    # A location closer to segment2
+    loc2 = DriveGoodAVStack.LocalizationType(5.0, 0.0, 0.0)  # Near (5.0, 0.0)
+    id2 = DriveGoodAVStack.find_road_id(map, loc2)
+    @test id2 == 2
+
+    # A location equidistant — still should choose one deterministically
+    loc3 = DriveGoodAVStack.LocalizationType(3.0, 0.0, 0.0)
+    id3 = DriveGoodAVStack.find_road_id(map, loc3)
+    @test id3 in (1, 2)
+end
+

@@ -27,7 +27,14 @@ include("gt/gt.jl")
 include("dummy_control.jl")
 
 
-export my_client,perception,GPSMeasurement,MyPerceptionType,LocalizationType,GroundTruthMeasurement,IMUMeasurement,CameraMeasurement, routing, get_polyline,get_way_points_from_path, EstimatedVehicleState
+export my_client,perception,GPSMeasurement,
+MyPerceptionType,LocalizationType,
+GroundTruthMeasurement,IMUMeasurement,
+CameraMeasurement, routing, 
+get_polyline,get_way_points_from_path,
+ EstimatedVehicleState,get_segment_centroids,
+ find_road_id
+ pure_pursuit
 
 
 
