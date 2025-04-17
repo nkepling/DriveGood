@@ -1,26 +1,5 @@
-# function compute_control(path::Vector{SVector{2,Float64}}, pos::SVector{2,Float64}, heading::Float64;
-#         lookahead=5.0, speed=2.0, wheelbase=2.5)
-
-#     direction = SVector(cos(heading), sin(heading))
-#     goal = find_lookahead_point(path, pos, lookahead, direction)
-
-#     if goal === nothing
-#         return (0.0, 0.0, false)
-#     end
-
-#     rel = goal - pos
-#     x_local = dot(rel, direction)
-#     y_local = cross(direction, rel)
-
-#     if x_local ≤ 0
-#         return (0.0, 0.0, false)
-#     end
-
-#     curvature = (2 * y_local) / (lookahead^2)
-#     steering = atan(wheelbase * curvature)
-#     return (steering, speed, true)
-# end
 include("../localization.jl")
+using StaticArrays
 function driver(pl::Polyline, loc::LocalizationType)
     angle = calculate_angle(pl, [loc.lat, loc.long], loc.yaw)
     return angle
@@ -63,34 +42,33 @@ end
 # normalize into (–π,π]
 wrap_angle(θ) = mod(θ + π, 2π) - π
 
-function calculate_angle(pl::Polyline,
-    pos::Vector{2,Float64},
-    heading::Float64;
-    lookahead=5.0,
-    speed=2.0)
+# returns target angle
+function pure_pursuit(state::LocalizationType,
+                      pl::Polyline;
+                      ls=0.5,
+                      wheelbase=2.5,
+                      v_des=5.0)
 
-# 1) find lookahead point
-    goal = find_lookahead_point(pl, pos, lookahead)
-    goal === nothing && return (0.0, 0.0, false)
+        loc = fetch(state_ch)
+        pos = SVector(loc.lat, loc.long)
+        θ   = loc.yaw
 
-# 2) vector from vehicle to goal
-    Δ = goal .- pos
+        lookahead = v_des * ls
+        target = find_lookahead_point(pl, pos, lookahead)
 
-# 3) absolute bearing to goal
-    bearing_to_goal = atan2(Δ[2], Δ[1])
-
-# 4) signed angle error = goal_bearing minus current heading
-    angle_error = wrap_angle(bearing_to_goal - heading)
-
-# if the goal is effectively behind us, bail out
-# (optional — you can remove if you still want a “behind” bearing)
-    x_f = dot(SVector(cos(heading), sin(heading)), Δ)
-    if x_f ≤ 0
-        return (0.0, 0.0, false)
-    end
-
-return (angle_error)
+        if target === nothing
+            δ = 0.0
+            v_t = 0.0
+        else
+            Δ = target .- pos
+            β = atan2(Δ[2], Δ[1])
+            alpha = wrap_angle(β - θ)
+            k = 2*sin(alpha) / lookahead
+            delta = atan(wheelbase * k)
+        end
+        return delta
 end
+
 
 
 
