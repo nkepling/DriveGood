@@ -1,7 +1,3 @@
-struct MyLocalizationType
-    field1::Int
-    field2::Float64
-end
 
 
 
@@ -199,10 +195,20 @@ function my_client(host::IPAddr=IPv4(0), port=4444,use_gt=false)
     @info "Staring Client"
     socket = Sockets.connect(host, port)
     map_segments = VehicleSim.city_map()
-    
-    msg = deserialize(socket) # Visualization info
-    @info msg
 
+    # Initial setup message
+    msg = deserialize(socket)
+    while msg isa String
+        @info "Skipping string message: $msg"
+        msg = deserialize(socket)
+    end
+
+    ego_id = msg.vehicle_id
+    target_segment = msg.target_segment
+
+    @info "Connected to VehicleSim. Vehicle ID: $ego_id"
+
+    # Channels
     gps_channel = Channel{GPSMeasurement}(32)
     imu_channel = Channel{IMUMeasurement}(32)
     cam_channel = Channel{CameraMeasurement}(32)
