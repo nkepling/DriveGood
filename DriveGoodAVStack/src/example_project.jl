@@ -1,17 +1,46 @@
+using Sockets
+using Serialization
+using VehicleSim
+using LinearAlgebra
 
-# # Module usage
-# using .GeometryUtils
-# using .PurePursuit
-# using .Planner
-# using .DecisionMaking
-# using .Routing
-# using .GTProcessor  # If your process_gt function is inside a module
+include("decision/decision_making.jl")
 
-function my_client(host::IPAddr = IPv4(0), port = 4444; use_gt=true)
+function process_gt(gt_channel, shutdown_channel, localization_state_channel, perception_state_channel)
+    @info "[GT] process_gt() started"
+    while true
+        fetch(shutdown_channel) && break
+
+        fresh_gt_meas = []
+        while isready(gt_channel)
+            push!(fresh_gt_meas, take!(gt_channel))
+        end
+
+        if isempty(fresh_gt_meas)
+            sleep(0.01)
+            continue
+        end
+
+        latest = fresh_gt_meas[end]
+
+        if isready(localization_state_channel)
+            take!(localization_state_channel)
+        end
+        put!(localization_state_channel, latest)
+
+        dummy_obstacles = []  # Or put something fake if you want to test avoidance
+        if isready(perception_state_channel)
+            take!(perception_state_channel)
+        end
+        put!(perception_state_channel, dummy_obstacles)
+
+        @info "[GT] Updated localization and perception"
+    end
+end
+
+function my_client(host::IPAddr = IPv4(0), port = 4444)
     socket = Sockets.connect(host, port)
     map_segments = VehicleSim.city_map()
 
-    # Initial setup message
     msg = deserialize(socket)
     while msg isa String
         @info "Skipping string message: $msg"
@@ -20,7 +49,6 @@ function my_client(host::IPAddr = IPv4(0), port = 4444; use_gt=true)
 
     ego_id = msg.vehicle_id
     target_segment = msg.target_segment
-
     @info "Connected to VehicleSim. Vehicle ID: $ego_id"
 
     # Channels
@@ -35,8 +63,8 @@ function my_client(host::IPAddr = IPv4(0), port = 4444; use_gt=true)
     shutdown_channel = Channel{Bool}(1)
     put!(shutdown_channel, false)
 
-    # Measurement listener from socket
-    @async begin
+    # Measurement listener
+    errormonitor(@async begin
         while true
             sleep(0.001)
             local msg
@@ -66,50 +94,27 @@ function my_client(host::IPAddr = IPv4(0), port = 4444; use_gt=true)
                 end
             end
 
-            # Dynamic routing
-            route = routing(map_segments, ego_id, target_segment)
-            polyline = construct_polyline_from_path(route, map_segments)
-            put!(routing_channel, polyline)
+            put!(routing_channel, [
+    ((-90.0, -78.0), false, false),
+    ((-85.0, -75.0), true, false),
+    ((-80.0, -72.0), false, true)
+])
+
+
+
         end
-    end
+    end)
 
-    # ========== Choose Input Mode ==========
-    if use_gt
-        @async process_gt(gt_channel, shutdown_channel, localization_state_channel, perception_state_channel)
-    else
-        @async localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)
+    errormonitor(@async process_gt(gt_channel, shutdown_channel, localization_state_channel, perception_state_channel))
 
-        @async perception(cam_channel, localization_state_channel, perception_state_channel, shutdown_channel)
-    end
-
-    # ========== Planner Loop ==========
-    @async begin
-        state = :DRIVING
-        stop_timer = 0.0
-        stopped_at_time = 0.0
-    
-        while true
-            fetch(shutdown_channel) && break
-    
-            loc = fetch(localization_state_channel)
-            perception = fetch(perception_state_channel)
-            path = fetch(routing_channel)
-    
-            @info "[Debug] Got localization", loc
-            @info "[Debug] Got perception", perception
-            @info "[Debug] Path size", length(path)
-    
-            obstacles = Planner.get_obstacle_positions(perception)
-    
-            steer, throttle, ok, state, stop_timer, stopped_at_time = plan_motion(loc, obstacles, path, state, stop_timer, stopped_at_time)
-    
-            cmd = VehicleCommand(steer, throttle, ok)
-            serialize(socket, cmd)
-    
-            sleep(0.05)
-        end
-    end    
+    errormonitor(@async run_planner(
+        localization_state_channel,
+        perception_state_channel,
+        routing_channel,
+        socket,
+        shutdown_channel
+    ))
 end
 
-# 🚗 Run the system
-# my_client(IPv4(0), 4444; use_gt=true)
+# 🚗 Run client
+my_client(ip"10.74.101.131", 4444)  # Replace with your IP if needed
