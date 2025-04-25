@@ -89,19 +89,22 @@ function run_mse(file_path::String)
         err_x   = 0.0
         err_y   = 0.0
         err_yaw = 0.0
+        print("x_gt,y_gt,x_est,y_est,yaw_gt,yaw_est\n")
 
         for i in 1:n
-            print("X est ")
             print(gt_xs[i])
-            print(" ")
-            print(est_xs[i])
-            print("y est ")
+            print(",")
             print(gt_ys[i])
-            print(" ")
+            print(",")
+            print(est_xs[i])
+            #print("y est ")
+            #
+            print(",")
             print(est_ys[i])
-            print("yaw est ")
+            print(",")
+            #print("yaw est ")
             print(gt_yaws[i])
-            print(" ")
+            print(",")
             print(est_yaws[i])
             print("\n")
             dx   = gt_xs[i]   - est_xs[i]

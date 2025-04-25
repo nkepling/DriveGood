@@ -41,7 +41,7 @@ function my_localize(gps_channel, imu_channel, localization_state_channel, shutd
     state_noise = Matrix{Float64}(I, 13, 13) * 1e-2
 
     # GPS meas noise cov. GPS[lat, long, heading].
-    gps_noise = Diagonal([1, 1, 0.05])
+    gps_noise = Diagonal([1, 1, 0.01])
 
     last_imu_time = first_imu.time
     last_gps_time = first_gps.time
@@ -83,13 +83,31 @@ function my_localize(gps_channel, imu_channel, localization_state_channel, shutd
 
             # Kalman update
             y = z .- z_hat
+            # Normalize yaw residual to [-π, π]
+            y[3] = mod(y[3] + π, 2π) - π 
+            
+            # Log residual and quaternion norm before update
+
             S = H*Cov_est*H' + gps_noise
             K = Cov_est*H'*inv(S)
-
+            YAW_MAX = 0.15  # radians, e.g. ~30°
+            if abs(y[3]) > YAW_MAX
+                #@warn "Skipping yaw update (residual=$(y[3]))"
+                 y[3] = sign(y[3]) * YAW_MAX
+            end
             x_est += K * y
+
+
             # renormalize quaternion
-            x_est[4:7] .= x_est[4:7] ./ norm(x_est[4:7])
+            q_norm = norm(x_est[4:7])
+            if q_norm < 1e-3
+            #@warn "Quaternion norm too small — resetting to identity" q_norm=q_norm
+                x_est[4:7] .= [1.0, 0.0, 0.0, 0.0]
+            else
+                x_est[4:7] ./= q_norm
+            end
             Cov_est = (I13 - K*H)*Cov_est*(I13 - K*H)' + K*gps_noise*K'
+
         end
 
         # —— publish your fused pose at whatever rate you like —— 
