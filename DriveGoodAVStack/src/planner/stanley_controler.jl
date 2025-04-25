@@ -13,54 +13,107 @@ function is_waypoint_ahead(car_x, car_y, yaw, wp_x, wp_y)
     return dot_prod > 0
 end
 
-# Stanley controller with filtering of behind-waypoints
-function stanley_control(loc,
-                         v,
-                         waypoints;
-                         k=1.0)
+# # Stanley controller with filtering of behind-waypoints
+# function stanley_control(loc,
+#                          v,
+#                          waypoints;
+#                          k=1.0)
+#     deadband = 0.1  # meters
+#     x = loc.lat
+#     y = loc.long
+#     yaw = loc.yaw
+#     # Filter waypoints ahead of vehicle
+#     ahead_waypoints = filter(wp -> is_waypoint_ahead(x, y, yaw, wp[1], wp[2]), waypoints)
+#     if isempty(ahead_waypoints)
+#         println("Warning: No waypoints ahead — defaulting to full list.")
+#         ahead_waypoints = waypoints
+#     end
+
+#     # Extract path points
+#     path_x = [pt[1] for pt in ahead_waypoints]
+#     path_y = [pt[2] for pt in ahead_waypoints]
+
+#     # Find nearest waypoint
+#     dists = [hypot(px - x, py - y) for (px, py) in zip(path_x, path_y)]
+#     nearest_idx = argmin(dists)
+
+#     # Compute path heading (between nearest and next point)
+#     next_idx = min(nearest_idx + 1, length(path_x))
+#     dx = path_x[next_idx] - path_x[nearest_idx]
+#     dy = path_y[next_idx] - path_y[nearest_idx]
+#     path_yaw = atan(dy, dx)
+
+#     # Heading error
+#     heading_error = normalize_angle(path_yaw - yaw)
+
+#     # Cross-track error (signed)
+#     dx = path_x[nearest_idx] - x
+#     dy = path_y[nearest_idx] - y
+#     cross_track_error = dy * cos(yaw) - dx * sin(yaw)
+
+#     # if abs(cross_track_error) < deadband
+#     #     cross_track_error = 0.0
+#     # end
+
+#     # Stanley control law
+#     cross_track_term = atan(k * cross_track_error / (v + 1e-5))
+#     delta = normalize_angle(heading_error + cross_track_term)
+
+#     return delta,nearest_idx
+# end
+
+
+function stanley_control(loc, v, waypoints; k=1.0)
     deadband = 0.1  # meters
+    min_lookahead_dist = 2.0  # meters
+
     x = loc.lat
     y = loc.long
     yaw = loc.yaw
-    # Filter waypoints ahead of vehicle
+
+    # Filter waypoints ahead
     ahead_waypoints = filter(wp -> is_waypoint_ahead(x, y, yaw, wp[1], wp[2]), waypoints)
     if isempty(ahead_waypoints)
         println("Warning: No waypoints ahead — defaulting to full list.")
         ahead_waypoints = waypoints
     end
 
-    # Extract path points
     path_x = [pt[1] for pt in ahead_waypoints]
     path_y = [pt[2] for pt in ahead_waypoints]
 
-    # Find nearest waypoint
+    # Find nearest index, but look at least 2m ahead
     dists = [hypot(px - x, py - y) for (px, py) in zip(path_x, path_y)]
     nearest_idx = argmin(dists)
 
-    # Compute path heading (between nearest and next point)
+    for i in nearest_idx:length(path_x)
+        dist = hypot(path_x[i] - x, path_y[i] - y)
+        if dist >= min_lookahead_dist
+            nearest_idx = i
+            break
+        end
+    end
+
     next_idx = min(nearest_idx + 1, length(path_x))
     dx = path_x[next_idx] - path_x[nearest_idx]
     dy = path_y[next_idx] - path_y[nearest_idx]
     path_yaw = atan(dy, dx)
 
-    # Heading error
     heading_error = normalize_angle(path_yaw - yaw)
 
-    # Cross-track error (signed)
     dx = path_x[nearest_idx] - x
     dy = path_y[nearest_idx] - y
     cross_track_error = dy * cos(yaw) - dx * sin(yaw)
 
-    # if abs(cross_track_error) < deadband
-    #     cross_track_error = 0.0
-    # end
+    if abs(cross_track_error) < deadband
+        cross_track_error = 0.0
+    end
 
-    # Stanley control law
     cross_track_term = atan(k * cross_track_error / (v + 1e-5))
     delta = normalize_angle(heading_error + cross_track_term)
 
-    return delta,nearest_idx
+    return delta, nearest_idx
 end
+
 
 
 function smooth_steering(δ_current, δ_target, max_rate, dt)
