@@ -9,7 +9,7 @@ using DriveGoodAVStack
     # This data set has not empty CameraMeasurements.
 
     
-    data = jldopen("/Users/nathankeplinger/Documents/Vanderbilt/Coursework/2025_Spring/software_for_autonomous_V/project/code/DriveGood/DriveGoodAVStack/test/msg_buffers/message_buff_move.jld2", "r") do file
+    data = jldopen("/Users/nathankeplinger/Documents/Vanderbilt/Coursework/2025_Spring/software_for_autonomous_V/project/code/DriveGood/DriveGoodAVStack/test/msg_buffers/message_buff_2_car.jld2", "r") do file
         Dict(key => read(file, key) for key in keys(file))
     end
 
@@ -36,7 +36,7 @@ using DriveGoodAVStack
     # 1 to 25 works
     #800:830
 
-    for i in 1:25
+    for i in 1:4
         for m in msg[i].measurements
             if m isa CameraMeasurement
                 try
@@ -73,7 +73,7 @@ using DriveGoodAVStack
     put!(shutdown_channel, true)
 
     # Call perception function with correct arguments
-    @infiltrate
+
     @info "calling perception"
     DriveGoodAVStack.perception(
         cam_channel,
@@ -125,9 +125,29 @@ using DriveGoodAVStack
 
     est = result.estimated_states
 
-    @info "Estimates: $est"
+    # @info "Estimates: $est"
 
-    @info "gt: $gt_measurements"
+    
 
+    @info "Gt positions; $gt_measurements"
+
+    gt = gt_measurements[1].position
+
+    println(gt[1])
+    println(gt[2])
+    println(est[1].pos_x)
+    println(est[1].pos_y)
+
+    gt_points = [gt[1],gt[2]]
+    est_points = [est[1].pos_x,est[1].pos_y]
+
+    function compute_mse(point1::Vector{Float64}, point2::Vector{Float64})
+        @assert length(point1) == length(point2) "Points must have the same dimensions"
+        mse = sum((point1 .- point2).^2) / length(point1)
+        return mse
+    end
+
+    # @info "MSE $(compute_mse(gt_points,est_points))"
+    
     
 end

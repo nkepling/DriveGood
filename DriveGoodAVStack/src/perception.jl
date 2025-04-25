@@ -5,7 +5,6 @@ mutable struct Track
     last_update::Float64        # last time we updated this track
 end
 
-
 function fuse_detections(dets::Vector{SVector{2,Float64}}, threshold::Float64)
     fused = SVector{2,Float64}[]
     used = falses(length(dets))
@@ -118,7 +117,7 @@ function ekf_update!(x::MVector{4,Float64}, P::SMatrix{4,4,Float64}, z::SVector{
     return (I4 - K*H_meas)*P
 end
 
-function perception(cam_meas_channel, localization_state_channel, perception_state_channel, shutdown_channel,gt_channel)
+function perception(cam_meas_channel, localization_state_channel, perception_state_channel, shutdown_channel)
     tracks = Track[]
     next_id = 1
     delete_after = 1.0          # seconds with no update → drop track
@@ -134,7 +133,8 @@ function perception(cam_meas_channel, localization_state_channel, perception_sta
         @info "Done Grabing Measurements"
         # TODO: fix this
         loc = fetch(localization_state_channel)
-        ego_position =loc.position
+        # ego_position =loc.position
+        ego_position =[loc.lat,loc.long]
         orientation_quaternion =loc.orientation
 
         T_wc1, T_wc2 = get_transforms(orientation_quaternion, ego_position)
