@@ -233,9 +233,6 @@ function interpolate_lane_boundary(boundary::VehicleSim.LaneBoundary; num_points
     # return [center .+ R .* SVector(cos(θ), sin(θ)) for θ in thetas]
 end
 
-
-
-
 function get_center_line(seg; num_points=20)
     left_bndry, right_bndry = seg.lane_boundaries
 
@@ -248,13 +245,7 @@ function get_center_line(seg; num_points=20)
 
         end_center = [(left_bndry.pt_b[1] + right_bndry.pt_b[1]) / 2,
                     (left_bndry.pt_b[2] + right_bndry.pt_b[2]) / 2]
-
-
-        return [
-            (1 - α) * start_center .+ α * end_center
-            for α in range(0.0, 1.0; length=num_points)
-        ]
-        # return [start_center, end_center]
+        return [start_center, end_center]
     end
 
     # Curved case
@@ -283,69 +274,12 @@ end
 # end
 
 
-"""
-    resample_path(pts; ds=1.0) -> Vector{NTuple{2,Float64}}
-
-Interpolate the poly-line `pts` so that consecutive points are
-`≈ ds` metres apart (linear interpolation).
-"""
-function resample_path(pts::Vector{NTuple{2,Float64}}; ds=1.0)
-    # 1. cumulative arc-length
-    s = (cumsum ∘ vcat)(0.0, hypot.(diff(first.(pts)), diff(last.(pts))))
-    total = last(s)
-    nsamp = max(2, floor(Int, total/ds + 1))
-    s_new = range(0, total; length=nsamp)
-    x = first.(pts);  y = last.(pts)
-    x_new = LinearInterpolation(s, x).(s_new)
-    y_new = LinearInterpolation(s, y).(s_new)
-    return collect(zip(x_new, y_new))
-end
-
-
-function offset_centerline_right(centerline::Vector{Vector{Float64}}, offset::Float64)
-    shifted = Vector{Vector{Float64}}()
-    for i in 1:length(centerline)-1
-        pt = centerline[i]
-        next_pt = centerline[i+1]
-        push!(shifted, offset_point_right(pt, next_pt, offset))
-    end
-    # for the last point, use direction from second last
-    pt = centerline[end]
-    prev_pt = centerline[end-1]
-    push!(shifted, offset_point_right(prev_pt, pt, offset))
-    return shifted
-end
-
-function offset_point_right(center::Vector{Float64}, next::Vector{Float64}, offset::Float64)
-    dx = next[1] - center[1]
-    dy = next[2] - center[2]
-    length = hypot(dx, dy)
-    if length < 1e-6
-        return center
-    end
-    dx /= length
-    dy /= length
-    # Rightward normal
-    nx = dy
-    ny = -dx
-    return [center[1] + offset * nx, center[2] + offset * ny]
-end
-
-
-
 function get_way_points_from_path(path, road_map)
     waypoints = Vector{Vector{Float64}}()
     road_id = Vector{Int}()
     first = true
     for id in path
-        centerline = get_center_line(road_map[id], num_points=20)
-
-        if VehicleSim.loading_zone in road_map[id].lane_types
-            offset = 10.0  # meters to the right
-            centerline = offset_centerline_right(centerline, offset)
-        end
-
-
+        centerline = get_center_line(road_map[id], num_points=10)
         if first
             append!(waypoints, centerline)
             n = length(centerline)

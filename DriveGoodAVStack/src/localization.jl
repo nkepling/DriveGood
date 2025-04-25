@@ -5,7 +5,6 @@ struct LocalizationType
     lat::Float64
     long::Float64
     yaw::Float64
-    velo::Vector{Float64}
 end
 
 function my_localize(gps_channel, imu_channel, localization_state_channel, shutdown_channel)

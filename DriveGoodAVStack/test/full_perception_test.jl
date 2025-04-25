@@ -15,11 +15,13 @@ end
 @testset "full_suite_perception_test" begin
 
     #static vehicle test 
-    data = jldopen("/Users/nathankeplinger/Documents/Vanderbilt/Coursework/2025_Spring/software_for_autonomous_V/project/code/DriveGood/DriveGoodAVStack/test/msg_buffers/moving_message_buff.jld2", "r") do file
+    data = jldopen("/Users/nathankeplinger/Documents/Vanderbilt/Coursework/2025_Spring/software_for_autonomous_V/project/code/DriveGood/DriveGoodAVStack/test/msg_buffers/stopped_vehicle_preception_message_buff.jld2", "r") do file
         Dict(key => read(file, key) for key in keys(file))
     end
 
     msgs = data["msg_buf"]
+
+ 
 
     i = 1
 
